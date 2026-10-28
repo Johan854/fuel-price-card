@@ -1,15 +1,47 @@
+{ // bloc isolé : aucune variable ne fuit vers les autres cartes
 /*
  * Fuel Price Card (FR)
  * Carte Home Assistant pour comparer les prix des carburants de plusieurs stations : classement du moins cher au
  * plus cher, écart avec la moins chère, tendance sur 7 jours, économie sur un plein. Style verre, thème clair/sombre
  * automatique, éditeur visuel, textes en français.
  */
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
+
+/* === NUANCE COMMUNE v2 (cartes Johan854) ===
+ * Bloc identique dans toutes les cartes. Options : nuance, nuance_perso, intensite.
+ * nuance "theme" (par défaut) : suit la variable carte-nuance du thème Home Assistant ;
+ * si elle n'existe pas, la carte garde ses couleurs d'origine. Intensité : 0 = neutre, 1 = normal, 2 = très coloré. */
+const GV_NUANCES = [["braise", "Braise (rouge)", "#e0524f"], ["ocean", "Océan (bleu)", "#2f8fd8"], ["lagon", "Lagon (turquoise)", "#1fb5a8"], ["foret", "Forêt (vert)", "#3fae5a"], ["lavande", "Lavande (violet)", "#8a63d8"], ["framboise", "Framboise (rose)", "#e05597"], ["ambre", "Ambre (orange)", "#e8902c"], ["ardoise", "Ardoise (neutre)", "#7d8595"]];
+const GV_DEFAULTS = { nuance: "theme", intensite: 1 };
+const gvAccent = (c) => {
+  const p = c && c.nuance_perso;
+  if (c && c.nuance === "perso") {
+    if (Array.isArray(p) && p.length === 3) return "#" + p.map((v) => Math.max(0, Math.min(255, Math.round(+v || 0))).toString(16).padStart(2, "0")).join("");
+    if (typeof p === "string" && /^#?[0-9a-f]{6}$/i.test(p.trim())) return "#" + p.trim().replace("#", "");
+  }
+  const n = GV_NUANCES.find((x) => x[0] === (c && c.nuance));
+  return n ? n[2] : "var(--carte-nuance)";
+};
+/* Variables posées sur <ha-card> : --g-bg-x (fond dégradé teinté) et --acc-ui-x (couleur d'accent).
+ * Sans nuance (thème sans carte-nuance), elles sont invalides : chaque carte retombe alors sur ses couleurs d'origine. */
+const gvStyle = (c, dark) => {
+  const i = Number(c && c.intensite), ai = Number.isFinite(i) ? Math.max(0, Math.min(2, i)) : 1;
+  const m = (pct, base) => `color-mix(in srgb,var(--acc-ui) ${+(pct * ai).toFixed(1)}%,${base})`;
+  const bg = dark ? `linear-gradient(160deg,${m(5, "#1b1e32")} 0%,${m(11, "#1f1b2c")} 55%,${m(22, "#1c1620")} 100%)`
+    : `linear-gradient(160deg,${m(2, "#f8f9fd")} 0%,${m(5, "#eef1f8")} 55%,${m(11, "#f8f8fa")} 100%)`;
+  return `--acc-ui:${gvAccent(c)};--g-bg-x:${bg};--acc-ui-x:color-mix(in srgb,var(--acc-ui) ${dark ? "80%,#fff" : "82%,#000"})`;
+};
+const GV_FIELDS = [
+  { name: "nuance", selector: { select: { mode: "dropdown", options: [{ value: "theme", label: "Selon le thème (couleurs d'origine)" }, ...GV_NUANCES.map((n) => ({ value: n[0], label: n[1] })), { value: "perso", label: "Personnalisée" }] } } },
+  { name: "nuance_perso", selector: { color_rgb: {} } },
+  { name: "intensite", selector: { number: { min: 0, max: 2, step: 0.1, mode: "slider" } } }];
+const GV_LABELS = { nuance: "Nuance de couleur", nuance_perso: "Couleur personnalisée (nuance « Personnalisée »)", intensite: "Intensité de la nuance" };
+/* === FIN NUANCE COMMUNE === */
 
 const DEFAULTS = {
   title: "Prix du carburant",
   fuel: "Gazole",
-  theme: "auto",
+  theme: "auto", nuance: "theme", intensite: 1,
   tank_liters: 40,
   show_tank: true,
   show_trend: true,
@@ -117,10 +149,10 @@ class FuelPriceCard extends HTMLElement {
 
     this.shadowRoot.innerHTML = `<style>
       * { box-sizing:border-box; }
-      ha-card.dark { --fp-text:#f4f6fb; --fp-muted:#a9afc0; --fp-bg:linear-gradient(160deg,#1b1e32 0%,#241a2a 55%,#2d1519 100%); --fp-border:rgba(255,255,255,.14); --fp-shadow:0 .6em 2em rgba(0,0,0,.35);
-        --fp-glass:rgba(255,255,255,.07); --fp-glass-b:rgba(255,255,255,.13); --fp-acc:#ffc83d; --fp-ok:#3ddc84; --fp-mid:#ffb86b; --fp-hi:#ff5a5f; --fp-track:rgba(255,255,255,.12); }
-      ha-card.light { --fp-text:#1c2030; --fp-muted:#5d6477; --fp-bg:linear-gradient(160deg,#f8f9fd 0%,#eef1f8 55%,#f8eff0 100%); --fp-border:rgba(20,24,40,.12); --fp-shadow:0 .4em 1.4em rgba(20,24,40,.12);
-        --fp-glass:rgba(255,255,255,.7); --fp-glass-b:rgba(20,24,40,.1); --fp-acc:#d68a00; --fp-ok:#1a9d55; --fp-mid:#c77a14; --fp-hi:#d32f35; --fp-track:rgba(20,24,40,.1); }
+      ha-card.dark { --fp-text:#f4f6fb; --fp-muted:#a9afc0; --fp-bg:var(--g-bg-x,linear-gradient(160deg,#1b1e32 0%,#241a2a 55%,#2d1519 100%)); --fp-border:rgba(255,255,255,.14); --fp-shadow:0 .6em 2em rgba(0,0,0,.35);
+        --fp-glass:rgba(255,255,255,.07); --fp-glass-b:rgba(255,255,255,.13); --fp-acc:var(--acc-ui-x,#ffc83d); --fp-ok:#3ddc84; --fp-mid:#ffb86b; --fp-hi:#ff5a5f; --fp-track:rgba(255,255,255,.12); }
+      ha-card.light { --fp-text:#1c2030; --fp-muted:#5d6477; --fp-bg:var(--g-bg-x,linear-gradient(160deg,#f8f9fd 0%,#eef1f8 55%,#f8eff0 100%)); --fp-border:rgba(20,24,40,.12); --fp-shadow:0 .4em 1.4em rgba(20,24,40,.12);
+        --fp-glass:rgba(255,255,255,.7); --fp-glass-b:rgba(20,24,40,.1); --fp-acc:var(--acc-ui-x,#d68a00); --fp-ok:#1a9d55; --fp-mid:#c77a14; --fp-hi:#d32f35; --fp-track:rgba(20,24,40,.1); }
       ha-card { container-type:inline-size; display:flex; flex-direction:column; gap:12px; padding:16px; color:var(--fp-text); border-radius:24px; border:1px solid var(--fp-border); background:var(--fp-bg); box-shadow:var(--fp-shadow); overflow:hidden; }
       ha-icon { --mdc-icon-size:1.2em; flex:none; }
       button { font:inherit; color:inherit; background:none; border:0; padding:0; text-align:left; cursor:pointer; -webkit-tap-highlight-color:transparent; }
@@ -142,7 +174,7 @@ class FuelPriceCard extends HTMLElement {
       .row.na { opacity:.5; } .empty { text-align:center; color:var(--fp-muted); padding:1.2em; font-size:.9em; }
       @container (max-width: 300px) { .tr { display:none; } .row { grid-template-columns:1.6em minmax(0,1fr) auto; } }
     </style>
-    <ha-card class="${dark ? "dark" : "light"}">
+    <ha-card class="${dark ? "dark" : "light"}" style="${gvStyle(this._config, dark)}">
       <div class="hd"><span class="t">${esc(c.title)}</span><span class="f">${esc(c.fuel)}</span></div>
       ${summary}
       ${list || off ? `<div class="list glass">${list}${off}</div>` : `<div class="empty">Ajoute des stations dans l'éditeur.</div>`}
@@ -152,12 +184,12 @@ class FuelPriceCard extends HTMLElement {
 }
 
 /* ---------- Éditeur visuel ---------- */
-const LABELS = { title: "Titre", fuel: "Carburant (affiché à droite)", theme: "Thème", tank_liters: "Taille du plein (L)", show_trend: "Tendance sur 7 jours", show_tank: "Afficher le prix du plein", show_summary: "Afficher le résumé",
+const LABELS = { ...GV_LABELS, title: "Titre", fuel: "Carburant (affiché à droite)", theme: "Thème", tank_liters: "Taille du plein (L)", show_trend: "Tendance sur 7 jours", show_tank: "Afficher le prix du plein", show_summary: "Afficher le résumé",
   max_rows: "Nombre de stations affichées (0 = toutes)", entity: "Capteur de prix", name: "Nom de la station (facultatif)" };
 const MAIN = [
   { type: "grid", name: "", schema: [{ name: "title", selector: { text: {} } }, { name: "fuel", selector: { text: {} } }] },
   { type: "grid", name: "", schema: [
-    { name: "theme", selector: { select: { mode: "dropdown", options: [{ value: "auto", label: "Automatique" }, { value: "light", label: "Clair" }, { value: "dark", label: "Sombre" }] } } },
+    { name: "theme", selector: { select: { mode: "dropdown", options: [{ value: "auto", label: "Automatique" }, { value: "light", label: "Clair" }, { value: "dark", label: "Sombre" }] } } }, ...GV_FIELDS,
     { name: "tank_liters", selector: { number: { min: 0, max: 200, mode: "box" } } } ] },
   { type: "grid", name: "", schema: [{ name: "show_summary", selector: { boolean: {} } }, { name: "show_trend", selector: { boolean: {} } }, { name: "show_tank", selector: { boolean: {} } }] },
   { name: "max_rows", selector: { number: { min: 0, max: 50, mode: "box" } } },
@@ -210,3 +242,4 @@ customElements.define("fuel-price-card-editor", FuelPriceCardEditor);
 window.customCards = window.customCards || [];
 window.customCards.push({ type: "fuel-price-card", name: "Fuel Price Card (FR)", description: "Comparateur de prix de carburant : classement, écart, tendance 7 jours, économie sur un plein.", preview: true });
 console.info(`%c FUEL-PRICE-CARD %c v${CARD_VERSION} `, "color:#fff;background:#d68a00;font-weight:700;border-radius:3px 0 0 3px;padding:2px 4px", "color:#d68a00;background:#fff;font-weight:700;border-radius:0 3px 3px 0;padding:2px 4px");
+}
